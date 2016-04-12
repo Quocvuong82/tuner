@@ -1,2 +1,2 @@
-name,             init,  max,  min,  ck,  rk,  elod
-MgKingRankBonus_0, 255, 1000, -1000, 8, 0.0020, 0
+name,             init,  max,  min,  c_end,  r_end,  elod
+MgKingRankBonus_0, 255, 1000, -1000, 8,      0.0020, 0
