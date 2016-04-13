@@ -9,6 +9,7 @@ import os
 import csv
 import sys
 import random
+import datetime
 
 
 class SPSAEngine:
@@ -84,8 +85,7 @@ class SPSAEngine:
         with open(self.config_file, 'rt') as file:
             line=file.readline()
             while line != '':
-                line = line.strip(' \r\n')
-                
+                line = line.strip(' \r\n[]')                
                 elems=line.split('=')
                 print(line)              
                 if self.settings.has_key(elems[0]):
@@ -124,12 +124,181 @@ class SPSAEngine:
        
     def playgame(self, var_eng1, var_eng2):
         #return -1#int(random.uniform(-2, 2))
-        for (k,v) in var_eng1.items():
-            if var_eng1[k] > var_eng2[k]:
-                return 1
+        #for (k,v) in var_eng1.items():
+        #    if var_eng1[k] > var_eng2[k]:
+        #        return 1
+        #    else:
+        #        return -1
+        
+        result = 0
+        
+        #select a opening   
+        fen = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1'
+        if len(self.openbooks) > 0:       
+            index = random.randint(0, len(self.openbooks)-1)
+            fen = self.openbooks[index]
+            
+        temparray=fen.split(' ')
+        
+        side_to_start = temparray[1]
+        
+        #set value to engine
+        for (k, v) in  var_eng1.items():
+            var1 = int(var_eng1[k])
+            var2 = int(var_eng2[k])
+            
+            command = 'setoption name %s value %d\n'%(k, var1)
+            self.tuner1.stdin.write(command)
+            
+            command = 'setoption name %s value %d\n'%(k, var2)
+            self.tuner2.stdin.write(command)
+            
+        #play two game
+        for eng1_is_white in range(2):
+            self.tuner1.stdin.write('ucinewgame\n')
+            self.tuner2.stdin.write('ucinewgame\n')
+            
+            self.tuner1.stdin.write('isready\n')
+            self.tuner2.stdin.write('isready\n')
+            
+            line=self.tuner1.stdout.readline()            
+            while line.find('readyok') == -1:                
+                line=self.tuner1.stdout.readline()               
+                
+            line=self.tuner2.stdout.readline()
+            while line.find('readyok') == -1:
+                line=self.tuner2.stdout.readline()             
+            
+            eng1_time = int(self.settings['basetime'])
+            eng2_time = int(self.settings['basetime'])
+            
+            engine_to_move = 1;
+            if (eng1_is_white==1 and side_to_start=='w') or (eng1_is_white==0 and side_to_start=='b'):
+                engine_to_move = 1
             else:
-                return -1
+                engine_to_move = 2
+            
+            #init game variabless
+            moves=''
+            winner=None
+            draw_counter=0
+            win_counter=[0,0,0]
+            
+            while True:
+                wtime =  eng1_time if  eng1_is_white == 1 else  eng2_time
+                btime =  eng1_time if  eng1_is_white == 0 else  eng2_time
+                
+                current_write_turner = self.tuner1.stdin if engine_to_move == 1 else self.tuner2.stdin
+                current_read_turner  = self.tuner1.stdout if engine_to_move == 1 else  self.tuner2.stdout
+                
+                #send engine current position
+                command = 'position fen %s \n'%(fen)
+                if moves != '':
+                    command = 'position fen %s moves %s\n'%(fen, moves)
+                print('send command %s'%command)
+                current_write_turner.write(command)
+                time = eng1_time if engine_to_move==1 else eng2_time
+                print('engine %d starts things Time: %d moves %s\n'%(engine_to_move, time, moves)) 
+                
+                #step: let it go
+                inctime = int(self.settings['inctime'])
+                t0 = datetime.datetime.now()
+                command = 'go wtime %d btime %d winc %d binc %d\n'%(wtime, btime, inctime,inctime) 
+                print('send command %s'%command)
+                current_write_turner.write(command)
 
+                score = 0
+                flag_mate = 0
+                flag_stalemate = 0 
+
+                revline = current_read_turner.readline()
+                while revline != '':
+                    revline = revline.strip(' \r\n')
+                    array = revline.split(' ')
+                    if len(array) > 0 and array[0] == 'bestmove':
+                        if array[1].find('none') != -1:
+                            flag_stalemate = 1
+                        moves = moves + ' ' + array[1]
+                        break
+                    if revline.find('mate') != -1:
+                        flag_mate = 1
+                        winner = engine_to_move
+
+                    for index,elem in enumerate(array): 
+                        if elem == 'score':
+                            if array[index+1] =='cp':
+                                score = int(array[index+2])
+                            elif array[index+1] =='mate':
+                                score = +100000 if int(array[index+2])>0 else -100000                                
+                            else:
+                                score = int(array[index+1])
+                            #print('score %d'%score)                    
+                                        
+                    revline = current_read_turner.readline()
+                    
+                print('score:%d'%score)    
+                elapsed = datetime.datetime.now() - t0
+                elapsedtime = elapsed.seconds
+                
+                if engine_to_move == 1:
+                    eng1_time = eng1_time - elapsedtime + inctime
+                
+                if engine_to_move == 2:
+                    eng2_time = eng2_time - elapsedtime + inctime
+        
+        
+                #check for mate and stalemate
+                if flag_mate == 1:
+                    winner = engine_to_move
+                    break
+        
+                if flag_stalemate == 1:
+                    winner = 1 if engine_to_move == 2 else 2
+                    break
+        
+                draw_counter = draw_counter + 1 if abs(score) <= int(self.settings['drawscorelimit']) else 0
+                print("draw counter: %d/%d"%(draw_counter, int(self.settings['drawmovelimit'])))
+                
+                if draw_counter > int(self.settings['drawmovelimit']):
+                    winner = 0
+                    break
+                    
+                us = engine_to_move
+                them = 2 if engine_to_move==1 else 1
+                
+                win_counter[us] = win_counter[us] + 1 if score >= int(self.settings['winscorelimit']) else 0
+                win_counter[them]= win_counter[them] + 1 if score <= -int(self.settings['winscorelimit']) else 0
+                
+                if win_counter[us] > 0:
+                    print('win counter: %d/%d'%(win_counter[us], int(self.settings['winmovelimit'])))
+                    
+                if win_counter[them] > 0:
+                    print('win counter: %d/%d'%(win_counter[them], int(self.settings['winmovelimit'])))
+                
+                
+                if win_counter[us] > int(self.settings['winmovelimit']):
+                     winner = us
+                     break
+                     
+                if win_counter[them] > int(self.settings['winmovelimit']):
+                     winner = them
+                     break
+                
+                    
+                #change turn
+                engine_to_move = them
+                
+            print('winner: %d'%winner) 
+             
+            if winner == 1:
+                result += 1
+            elif winner == 2:
+                result -= 1
+            else:
+                result = 0            
+        
+        return result    
+            
     def run_spsa(self):
         
         iter = 0;
