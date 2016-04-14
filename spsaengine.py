@@ -20,8 +20,8 @@ class SPSAEngine:
         
         self.settings={\
         'variables':'./engine.var',\
-        'log':'./engine.log',\
-        'gamelog':'./engine_game_thread.log',
+        'log':'./log',\
+        'gamelog':'./game',
         'iterations':100,\
         'A':5000,\
         'Gamma':0.101,\
@@ -45,12 +45,39 @@ class SPSAEngine:
         
         #the wanted values
         self.shared_delta={}
+        
+        #log
+        self.logfile = None
+        self.gamefile= None      
+
     def __del__(self):
         if self.tuner1 != None:
            self.tuner1.kill() 
         if self.tuner2 != None:
            self.tuner2.kill() 
-        pass
+        if self.logfile != None:
+           self.logfile.close()
+        if self.gamefile != None:
+           self.gamefile.close()
+    def log(self, line):
+        if self.logfile is None:
+            name = './%s-%s.log'%(self.settings['log'], time.strftime('%Y-%m-%d-%H-%M-%S',time.localtime()))
+            self.logfile = open(name, 'wt')
+        
+        nowtime = time.strftime('%Y-%m-%d-%H:%M:%S',time.localtime())
+        text = '[%s]:%s\n'%(nowtime, line)        
+        self.logfile.write(text)
+        self.logfile.flush()            
+    def gamelog(self, line):
+        if self.gamefile is None:
+            name = './%s-%s.log'%(self.settings['gamelog'], time.strftime('%Y-%m-%d-%H-%M-%S',time.localtime()))
+            self.gamefile = open(name, 'wt')
+        
+        nowtime = time.strftime('%Y-%m-%d-%H:%M:%S',time.localtime())
+        text = '[%s]:%s\n'%(nowtime, line)        
+        self.gamefile.write(text)
+        self.gamefile.flush()
+        
     def readopenbook(self):
         with open(self.settings['epdbook'],'rt') as file:
             for line in file:
@@ -123,20 +150,15 @@ class SPSAEngine:
         self.readopenbook()
        
     def playgame(self, var_eng1, var_eng2):
-        #return -1#int(random.uniform(-2, 2))
-        #for (k,v) in var_eng1.items():
-        #    if var_eng1[k] > var_eng2[k]:
-        #        return 1
-        #    else:
-        #        return -1
         
         result = 0
         
         #select a opening   
         fen = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1'
+        fenindex = 0
         if len(self.openbooks) > 0:       
-            index = random.randint(0, len(self.openbooks)-1)
-            fen = self.openbooks[index]
+            fenindex = random.randint(0, len(self.openbooks)-1)
+            fen = self.openbooks[fenindex]
             
         temparray=fen.split(' ')
         
@@ -177,6 +199,8 @@ class SPSAEngine:
                 engine_to_move = 1
             else:
                 engine_to_move = 2
+                
+            self.gamelog('Starting game using opening fen%d :%s .Engine to start:%d'%(fenindex,fen, engine_to_move))
             
             #init game variabless
             moves=''
@@ -197,8 +221,12 @@ class SPSAEngine:
                     command = 'position fen %s moves %s\n'%(fen, moves)
                 print('send command %s'%command)
                 current_write_turner.write(command)
+                
                 time = eng1_time if engine_to_move==1 else eng2_time
-                print('engine %d starts things Time: %d moves %s\n'%(engine_to_move, time, moves)) 
+                
+                self.gamelog('Engine %d starts thinking. Time: %d. Moves: %s'%(engine_to_move, time, moves))
+                self.gamelog('position fen %s moves%s'%(fen, moves))
+                print('engine %d starts thinking Time: %d moves %s\n'%(engine_to_move, time, moves)) 
                 
                 #step: let it go
                 inctime = int(self.settings['inctime'])
@@ -220,9 +248,13 @@ class SPSAEngine:
                             flag_stalemate = 1
                         moves = moves + ' ' + array[1]
                         break
-                    if revline.find('mate') != -1:
-                        flag_mate = 1
-                        winner = engine_to_move
+                    #if revline.find('mate') != -1:
+                    #    flag_mate = 1
+                    #    winner = engine_to_move
+                    for index,elem in enumerate(array):
+                        if elem == 'mate' and array[index+1] == '1':
+                            flag_mate = 1
+                            winner = engine_to_move
 
                     for index,elem in enumerate(array): 
                         if elem == 'score':
@@ -235,8 +267,10 @@ class SPSAEngine:
                             #print('score %d'%score)                    
                                         
                     revline = current_read_turner.readline()
-                    
-                print('score:%d'%score)    
+                
+                self.gamelog("Score: %s"%(score,))                
+                print('score:%d'%score) 
+                
                 elapsed = datetime.datetime.now() - t0
                 elapsedtime = elapsed.seconds
                 
@@ -255,9 +289,13 @@ class SPSAEngine:
                 if flag_stalemate == 1:
                     winner = 1 if engine_to_move == 2 else 2
                     break
-        
+                    
+                #Update draw counter
                 draw_counter = draw_counter + 1 if abs(score) <= int(self.settings['drawscorelimit']) else 0
+               
                 print("draw counter: %d/%d"%(draw_counter, int(self.settings['drawmovelimit'])))
+                self.gamelog('Draw counter: %d/%d'%(draw_counter, int(self.settings['drawmovelimit'])))
+                
                 
                 if draw_counter > int(self.settings['drawmovelimit']):
                     winner = 0
@@ -269,11 +307,15 @@ class SPSAEngine:
                 win_counter[us] = win_counter[us] + 1 if score >= int(self.settings['winscorelimit']) else 0
                 win_counter[them]= win_counter[them] + 1 if score <= -int(self.settings['winscorelimit']) else 0
                 
+                
+                
                 if win_counter[us] > 0:
-                    print('win counter: %d/%d'%(win_counter[us], int(self.settings['winmovelimit'])))
+                    print('Win Counter: %d/%d'%(win_counter[us], int(self.settings['winmovelimit'])))
+                    self.gamelog('Win Counter: %d/%d'%(win_counter[us], int(self.settings['winmovelimit'])))
                     
                 if win_counter[them] > 0:
-                    print('win counter: %d/%d'%(win_counter[them], int(self.settings['winmovelimit'])))
+                    print('Loss Counter: %d/%d'%(win_counter[them], int(self.settings['winmovelimit'])))
+                    self.gamelog('Loss Counter: %d/%d'%(win_counter[them], int(self.settings['winmovelimit'])))
                 
                 
                 if win_counter[us] > int(self.settings['winmovelimit']):
@@ -287,7 +329,9 @@ class SPSAEngine:
                     
                 #change turn
                 engine_to_move = them
-                
+            
+            #record the result
+            self.gamelog('Winner: %s'%(winner,))            
             print('winner: %d'%winner) 
              
             if winner == 1:
@@ -295,7 +339,7 @@ class SPSAEngine:
             elif winner == 2:
                 result -= 1
             else:
-                result = 0            
+                result += 0            
         
         return result    
             
@@ -357,15 +401,21 @@ class SPSAEngine:
             result =  self.playgame(var_eng1, var_eng2)
             
             print("iteration: %d"%iter)
+            
+            delataline = ''
             for row in self.variables:
                 
                 name = row['name']
                 
                 self.shared_delta[name] += var_R[name]*var_c[name]*result/var_delta[name]
                 self.shared_delta[name] = max(min(self.shared_delta[name], var_max[name]), var_min[name])                
-
+                
+                delataline = delataline + ' ' + name +':' + str(self.shared_delta[name])
                 print(self.shared_delta[name]),
             print('\n')
+            
+            logline = '%d: %s'%(iter, delataline)
+            self.log(logline)
 def main():
     
     os.chdir(os.path.dirname(sys.argv[0]))
