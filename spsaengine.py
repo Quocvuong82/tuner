@@ -89,8 +89,8 @@ class SPSAEngine:
                 self.resultfile = open(name, 'wt')
                 
             nowtime = time.strftime('%Y-%m-%d-%H:%M:%S',time.localtime())
-            self.resultfile.write('[%s]: iter %d--------------------------------------------------------------------\n'%iter)
-            self.resultfile.write('name,   init,  max,  min,  c_end,  r_end,  elod\n'%(nowtime,iter))
+            self.resultfile.write('[%s]: iter %d--------------------------------------------------------------------\n'%(nowtime, iter))
+            self.resultfile.write('name,   init,  max,  min,  c_end,  r_end,  elod\n')
             
             for row in self.variables:
                 
@@ -274,9 +274,7 @@ class SPSAEngine:
                             flag_stalemate = 1
                         moves = moves + ' ' + array[1]
                         break
-                    #if revline.find('mate') != -1:
-                    #    flag_mate = 1
-                    #    winner = engine_to_move
+
                     for index,elem in enumerate(array):
                         if elem == 'mate' and array[index+1] == '1':
                             flag_mate = 1
@@ -447,7 +445,7 @@ class SPSAEngine:
             logline = '%d: %s'%(iter, delataline)
             self.log(logline)
             
-            if iter%10==0:
+            if iter%1==0:
                self.logresult(iter);
                 
 def main():
