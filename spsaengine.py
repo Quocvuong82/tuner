@@ -35,7 +35,8 @@ class SPSAEngine:
         'drawscorelimit':4,\
         'drawmovelimit':8,\
         'winscorelimit':650,\
-        'winmovelimit':8}
+        'winmovelimit':8,\
+        'result':'./result'}
         
         self.tuner1=None
         self.tuner2=None
@@ -48,7 +49,9 @@ class SPSAEngine:
         
         #log
         self.logfile = None
-        self.gamefile= None      
+        self.gamefile= None
+        
+        self.resultfile = None        
 
     def __del__(self):
         if self.tuner1 != None:
@@ -59,6 +62,8 @@ class SPSAEngine:
            self.logfile.close()
         if self.gamefile != None:
            self.gamefile.close()
+        if self.resultfile != None:
+           self.resultfile.close()
     def log(self, line):
         if self.logfile is None:
             name = './%s-%s.log'%(self.settings['log'], time.strftime('%Y-%m-%d-%H-%M-%S',time.localtime()))
@@ -77,7 +82,27 @@ class SPSAEngine:
         text = '[%s]:%s\n'%(nowtime, line)        
         self.gamefile.write(text)
         self.gamefile.flush()
-        
+    def logresult(self, iter):
+    
+            if self.resultfile is None:
+                name = './%s-%s.log'%(self.settings['result'], time.strftime('%Y-%m-%d-%H-%M-%S',time.localtime()))
+                self.resultfile = open(name, 'wt')
+                
+            nowtime = time.strftime('%Y-%m-%d-%H:%M:%S',time.localtime())
+            self.resultfile.write('[%s]: iter %d--------------------------------------------------------------------\n'%iter)
+            self.resultfile.write('name,   init,  max,  min,  c_end,  r_end,  elod\n'%(nowtime,iter))
+            
+            for row in self.variables:
+                
+                name = row['name']                
+
+                delataline = '%s, %f, %f, %f, %f, %f, %f\n'%(name, self.shared_delta[name], row['max'],row['min'], row['c_end'], row['r_end'], row['elod'])               
+                
+                self.resultfile.write(delataline)               
+            
+            self.resultfile.flush()       
+
+                        
     def readopenbook(self):
         with open(self.settings['epdbook'],'rt') as file:
             for line in file:
@@ -174,7 +199,8 @@ class SPSAEngine:
             
             command = 'setoption name %s value %d\n'%(k, var2)
             self.tuner2.stdin.write(command)
-            
+         
+                
         #play two game
         for eng1_is_white in range(2):
             self.tuner1.stdin.write('ucinewgame\n')
@@ -207,7 +233,7 @@ class SPSAEngine:
             winner=None
             draw_counter=0
             win_counter=[0,0,0]
-            
+            move_iter = 0 
             while True:
                 wtime =  eng1_time if  eng1_is_white == 1 else  eng2_time
                 btime =  eng1_time if  eng1_is_white == 0 else  eng2_time
@@ -326,7 +352,11 @@ class SPSAEngine:
                      winner = them
                      break
                 
-                    
+                move_iter += 1;
+                #draw
+                if  move_iter>160:
+                    winner = 0
+                    break                    
                 #change turn
                 engine_to_move = them
             
@@ -411,11 +441,15 @@ class SPSAEngine:
                 self.shared_delta[name] = max(min(self.shared_delta[name], var_max[name]), var_min[name])                
                 
                 delataline = delataline + ' ' + name +':' + str(self.shared_delta[name])
-                print(self.shared_delta[name]),
-            print('\n')
+                #print(self.shared_delta[name]),
+            #print('\n')
             
             logline = '%d: %s'%(iter, delataline)
             self.log(logline)
+            
+            if iter%10==0:
+               self.logresult(iter);
+                
 def main():
     
     os.chdir(os.path.dirname(sys.argv[0]))
